@@ -11,11 +11,24 @@ from scipy.misc import toimage
 import math
 import random
 import collections
+from toolz import unique
 
-points = np.random.rand(2200, 2)
+points = np.random.rand(800, 2)
 
 
 shapeOfGradient = "circle"
+
+
+def line_neighbor(line1, line2):
+    for point in line1:
+        if point in line2:
+            return True
+    return False
+
+def adjacent(list, n):
+    groups = [list[i:i + n] for i in range(len(list) + 1 - n)]
+    groups.append([list[::-1][0], list[0]])
+    return groups
 
 # fucking stupid ass  donkey shit way to find circumcenter of triangle....   And this shit will be in bagrut FFS
 def triangle_csc(pts):
@@ -261,6 +274,7 @@ def display(vor):
     ocean_id_bfs = []
     data_model_ocean = list(filter(lambda data: data['type'] is "ocean", data_model))
     queue_ocean = collections.deque([random.choice(data_model_ocean)])
+    
     while queue_ocean:
         vertex = queue_ocean.popleft()
         if vertex["visitedForLake"] is False:
@@ -283,13 +297,182 @@ def display(vor):
         print(types)
         if types.count("ocean") is 0:
             data["type"] = "lakeShore"
+            
+            
+    # now let's detect the shoreline for spline interpolation or bezier niggas or whatever
+    # we have to do this again because now we have lakeShores which we don't want for coastline calculation
+    # and also lakes which are not oceans
+    data_model_shores = list(filter(lambda data: data['type'] is "shore", data_model))
+    data_model_ocean = list(filter(lambda data: data['type'] is "ocean", data_model))
+    queue_shore = collections.deque([random.choice(data_model_shores)])
+    idd = queue_shore[0]["index"]
+    # this time we will do DFS instead of BFS since we want continuity 
+    big_snake = []
+    ccc = -1
+    already_know_points = None
+    while queue_shore:
+        ccc = ccc + 1
+        shore = queue_shore.popleft()
+        # let's detect the line (or lines) that are shared by the shore cell and neighboring ocean cells
+        
+        
+        def find_snake(shore, already_know):
+            indices = [indice for indice in shore["neighbor_indices"][0]]
+            neighbors_ocean = list(filter(lambda dictt: dictt['index'] in indices, data_model_ocean))
+            shore_lines = adjacent(shore["poly"], 2) # split polygon to lines from its vertices
+            good_line_non_continue = []
+            for neigh in neighbors_ocean:
+                neigh_lines = adjacent(neigh["poly"], 2)
+                for neigh_line in neigh_lines:
+                    for shore_line in shore_lines:
+                        if sorted(neigh_line) == sorted(shore_line):
+                            good_line_non_continue.append(shore_line)
+                            
+                            # very important
+                            ####################
+                            #extend with shore_line and not neigh_line so order is not fucked up
+            
+            # we need to seperate to different lines if land in between
+            
+            bad_lines = []
+            for line in shore_lines:
+                if line not in good_line_non_continue:
+                    bad_lines.append(line)
+            
+            chosen_bad_line = None
+            
+            while True:
+                random_line = random.choice(good_line_non_continue)
+                for bad_line in bad_lines:
+                    if line_neighbor(random_line, bad_line):
+                        # then we found the one
+                        chosen_bad_line = bad_line
+                        break
+                else:
+                    continue
+                break
+                
+                
+            if chosen_bad_line[1] != random_line[0]:
+                chosen_bad_line = chosen_bad_line[::-1]
+                if chosen_bad_line[1] != random_line[0]:
+                    chosen_bad_line = chosen_bad_line[::-1] # revert
+                    random_line = random_line[::-1]    
+        
+            end = False
+            snake = [random_line]    
+            while True:
+                for c, good_line in enumerate(good_line_non_continue):
+                    if line_neighbor(snake[-1], good_line) and good_line != snake[-1] and good_line not in snake:
+                        snake.append(good_line)
+                        break
+                    if c == len(good_line_non_continue)-1:
+                        # then we reached the end and no neighbor meaning we are done
+                        end = True
+                        break
+                if end==True:
+                    break                 
+                            
+                        
+            print("snake")            
+            print(snake)             
+            
+            
+            
+            # for i in range(1, len(snake)):
+            #     if snake[i-1][1] != snake[i][0]:
+            #         snake[i] = snake[i][::-1]
+                            
+                        
+            snake_points = [item for sublist in snake for item in sublist]
+            snake_points = list(map(list, unique(map(tuple, snake_points))))
+            
+            return snake_points
+        
+        
+        
+        
+        
+        if ccc == 0:
+            snake_points = find_snake(shore, False)
+        else:
+            snake_points = already_know_points[:]
+        big_snake.extend(snake_points)  
+        
+        
+        indicess = [indice for indice in shore["neighbor_indices"][0]]
+        neighbors_shore = list(filter(lambda dictt: dictt['index'] in indicess, data_model_shores))
+        for i in range(len(neighbors_shore)):
+            if neighbors_shore[i] != shore:
+                neigh_snake = find_snake(neighbors_shore[i], False)
+                if neigh_snake[0] == big_snake[-1]:
+                    #big_snake.extend(neigh_snake)
+                    print("1111")
+                    queue_shore.append(neighbors_shore[i])
+                    already_know_points = neigh_snake[:]
+                    break
+                elif neigh_snake[::-1][0] == big_snake[-1]:
+                    #big_snake.extend(neigh_snake)
+                    print("2222")
+                    queue_shore.append(neighbors_shore[i])
+                    already_know_points = neigh_snake[::-1]
+                    break
+                else:
+                    pass
+                    
+                  
+        
+        # if ccc == 4:
+        #     break                           
+            
+            
+            
+            # for i in range(1, len(snake_points)):
+            #     if snake_points[i] == snake_points[i-1]:
+            #         snake_points[i] = "delete"
+            # snake_points = [point for point in snake_points if point != "delete"]        
+            
+            # one bug can happen because start is bad
+                     
+            
+            
+            # we need to find if there are seperate lines so we'll try to connect
+            
+            
+            # print(len(bad_lines))
+            # print(len(good_line_non_continue))
+            # print(len(shore["poly"]))
+            
+    # remove duplicate points from line        
+    #good_line = list(map(list, unique(map(tuple, good_line))))
     
+    # sort according to order in original polygon
+    
+    #big_snake = list(map(list, unique(map(tuple, big_snake))))
+    
+    big_snake = list(map(list, unique(map(tuple, big_snake))))
     
     for i in range(len(data_model)):
         #plt.fill(*zip(*data_model[i]["poly"]), 'g' if data_model[i]["heightmap"] > 0.05 else "b")
     
         if i in [core["index"] for core in cores]:
-            plt.fill(*zip(*data_model[i]["poly"]), 'r')  
+            plt.fill(*zip(*data_model[i]["poly"]), 'r')
+        elif i == idd:
+            plt.fill(*zip(*data_model[i]["poly"]), color=np.array([1, 0, 1]))
+            # for c, line in enumerate(snake):
+            #     x_values = [point[0] for point in line]
+            #     y_values = [point[1] for point in line] 
+            #     plt.plot(x_values, y_values, linewidth=2, color=(1, 1, 1))
+            #     plt.text(np.sum(np.array(x_values))/2, np.sum(np.array(y_values))/2, c)
+            
+            
+            x_values = [point[0] for point in big_snake]
+            y_values = [point[1] for point in big_snake]
+            plt.plot(x_values, y_values, linewidth=2, color=(1, 1, 1))
+            
+            for i in range(len(x_values)):
+                plt.text(x_values[i], y_values[i], i)
+            
         else:    
             #plt.fill(*zip(*data_model[i]["poly"]), color=[color[1] for color in colorsForHeight if data_model[i]["heightmap"] < threshold + color[0]][0])
             if data_model[i]["type"] == "mainland":    
